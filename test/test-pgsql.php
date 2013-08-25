@@ -1,5 +1,5 @@
 <?php
-require('PDOWrapper.php');
+require('../src/PDOWrapper.php');
 $db = PDOWrapper::instance();
 
 $db->configMaster('localhost', 'test', 'somebody', '', null, 'pgsql');
