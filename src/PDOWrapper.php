@@ -1,23 +1,29 @@
 <?php
 /**
- * Thin PDO Wrapper: A simple database client utilizing PHP PDO.
- *
- * Copyright (c) 20010-2011 Michael Henretty
- *
- * Distributed under the terms of the MIT License.
- * Redistributions of files must retain the above copyright notice.
- *
- * @copyright  2010-2011 Michael Henretty <michael.henretty@gmail.com>
- * @license    http://www.opensource.org/licenses/mit-license.php The MIT License
- * @link       http://github.com/mikehenrty/thin-pdo-wrapper
+ * PDO Wrapper: A simple database client utilizing PHP PDO.
  */
+
+/** All types of database supported(thanks to PDO) */
+
+/**
+ * Queries that can be executed :
+ * CREATE TABLE 
+ * SELECT
+ * INSERT
+ * UPDATE
+ * DELETE
+ * TRUNCATE
+ * DROP TABLE
+ * /         
+
+/**
+ * Sample test : http://www.scriptings.tk/paste/51e758a96d3c4
+ * / 
 
 /**
  * Wrapper object for a PDO connection to the database
  *
  * @package PDO Wrapper
- * @author Michael Henretty - 08/24/2010
- * @version 1.1
  */
 class PDOWrapper {
 	
@@ -335,40 +341,96 @@ class PDOWrapper {
 		
 		return $this->pdo_slave;
 	}
-
+  
+  
 	/**
 	 * method select.
 	 * 	- retrieve information from the database, as an array
 	 *
 	 * @param string $table - the name of the db table we are retreiving the rows from
+	 * @param array $show - the columns that are to be fetched   
 	 * @param array $params - associative array representing the WHERE clause filters
+	 * @param array $compare - array containing the comparison operatios for WHERE clause filters
+	 * @param array $logic - array of logical operators after every condition      
 	 * @param int $limit (optional) - the amount of rows to return
 	 * @param int $start (optional) - the row to start on, indexed by zero
 	 * @param array $order_by (optional) - an array with order by clause
 	 * @param bool $use_master (optional) - use the master db for this read
 	 * @return mixed - associate representing the fetched table row, false on failure
 	 */
-	public function select($table, $params = null, $limit = null, $start = null, $order_by=null, $use_master = false) {
-		// building query string
-		$sql_str = "SELECT * FROM $table";
+	public function select($table, $showcols = null, $params = array(),
+                         $compare = null, $logic = null, $limit = null,
+                         $start = null, $group_by = null, $order_by = null,
+                         $use_master = false) {
+		
+    // building query string
+    $sql_str = "SELECT";
+    if (!empty($showcols)) {
+			$add_comma = false;
+			foreach ($showcols as $col) {
+				if ($add_comma) {
+					$sql_str .= ', ';
+				}
+				else {
+					$add_comma = true;
+				}
+				$sql_str .= " $col";
+			}
+		}
+    else {
+      $sql_str .= " * ";
+    }
+    
+		$sql_str .= " FROM $table";
 		// append WHERE if necessary
 		$sql_str .= ( count($params)>0 ? ' WHERE ' : '' );
 		
-		$add_and = false;
+		$add_logic = false;
 		// add each clause using parameter array
 		if (empty($params)) {
 			$params = array();
 		}
+    
+    $i = 0;
+    $j = 0;
 		foreach ($params as $key=>$val) {
-			// only add AND after the first clause item has been appended
-			if ($add_and) {
-				$sql_str .= ' AND ';
-			} else {
-				$add_and = true;
+			// all AND OR after the first clause item has been appended
+			if ($add_logic) {
+        if(!empty($logic[$j])) {
+          $sql_str .= ' '.$logic[$j].' ';
+          $j++;
+        }
+        else{
+          $sql_str .= ' AND ';
+        }
+			}
+      else {
+				$add_logic = true;
 			}
 			
 			// append clause item
-			$sql_str .= "$key = :$key";
+      if(!empty($compare[$i])) {
+			  $sql_str .= "$key ".$compare[$i]." :$key";
+        $i++;
+      }
+      else {
+        $sql_str .= "$key = :$key";
+      }
+		}
+    
+    // add the group by clause if we have one
+		if (!empty($group_by)) {
+			$sql_str .= ' GROUP BY';
+			$add_comma = false;
+			foreach ($group_by as $group) {
+				if ($add_comma) {
+					$sql_str .= ', ';
+				}
+				else {
+					$add_comma = true;
+				}
+				$sql_str .= " $group";
+			}
 		}
 		
 		// add the order by clause if we have one
@@ -432,21 +494,392 @@ class PDOWrapper {
 			return false;
 		}
 	}
+ 
+  
+  /**
+	 * method rowcount.
+	 * 	- retrieve number of rows from a desired table under conditions
+	 *
+	 * @param string $table - the name of the db table we are retreiving the rows from
+	 * @param array $show - the columns that are to be fetched   
+	 * @param array $params - associative array representing the WHERE clause filters
+	 * @param array $compare - array containing the comparison operatios for WHERE clause filters
+	 * @param array $logic - array of logical operators after every condition      
+	 * @param int $limit (optional) - the amount of rows to return
+	 * @param int $start (optional) - the row to start on, indexed by zero
+	 * @param array $order_by (optional) - an array with order by clause
+	 * @param bool $use_master (optional) - use the master db for this read
+	 * @return mixed - associate representing the fetched table row, false on failure
+	 */
+	public function rowcount($table, $selcol = null, $params = array(),
+                           $compare = null, $logic = null, $group_by = null,
+                           $use_master = false) {
+		
+    // building query string
+    $sql_str = "SELECT COUNT(";
+    if (!empty($selcol)) {
+			$sql_str .= " $selcol ";
+		}
+    else {
+      $sql_str .= " * ";
+    }
+    
+		$sql_str .= ") as count FROM $table";
+		// append WHERE if necessary
+		$sql_str .= ( count($params)>0 ? ' WHERE ' : '' );
+		
+		$add_logic = false;
+		// add each clause using parameter array
+		if (empty($params)) {
+			$params = array();
+		}
+    
+    $i = 0;
+    $j = 0;
+		foreach ($params as $key=>$val) {
+			// all AND OR after the first clause item has been appended
+			if ($add_logic) {
+        if(!empty($logic[$j])) {
+          $sql_str .= ' '.$logic[$j].' ';
+          $j++;
+        }
+        else{
+          $sql_str .= ' AND ';
+        }
+			}
+      else {
+				$add_logic = true;
+			}
+			
+			// append clause item
+      if(!empty($compare[$i])) {
+			  $sql_str .= "$key ".$compare[$i]." :$key";
+        $i++;
+      }
+      else {
+        $sql_str .= "$key = :$key";
+      }
+		}
+    
+    // add the group by clause if we have one
+		if (!empty($group_by)) {
+			$sql_str .= ' GROUP BY';
+			$add_comma = false;
+			foreach ($group_by as $group) {
+				if ($add_comma) {
+					$sql_str .= ', ';
+				}
+				else {
+					$add_comma = true;
+				}
+				$sql_str .= " $group";
+			}
+		}
+		
+		// now we attempt to retrieve the row using the sql string
+		try {
+			
+			// decide which database we are selecting from
+			$pdo_connection = $use_master ? $this->getMaster() : $this->getSlave();
+            $pdoDriver = $pdo_connection->getAttribute(PDO::ATTR_DRIVER_NAME);
+            
+			//@TODO MS SQL Server & Oracle handle LIMITs differently, for now its disabled but we should address it later.
+			$disableLimit = array("sqlsrv", "mssql", "oci");
+			
+			$pstmt = $pdo_connection->prepare($sql_str);
+			
+			// bind each parameter in the array			
+			foreach ($params as $key=>$val) {
+				$pstmt->bindValue(':'.$key, $val);
+			}
+			
+      if($pstmt->execute()) {
+        if(empty($group_by)) {
+          $result = $pstmt->fetch(PDO::FETCH_ASSOC);
+          return $result['count'];
+        }
+			  else {
+				  return $pstmt->fetchAll(PDO::FETCH_ASSOC);
+			  }
+      }
+      else {
+			  return false;
+			}
+    }
+		catch(PDOException $e) {
+			if (self::$LOG_ERRORS == true) {
+				error_log('DATABASE WRAPPER::'.print_r($e, true));
+			}
+			$this->pdo_exception = $e;
+			return false;
+		}
+		catch(Exception $e) {
+			if (self::$LOG_ERRORS == true) {
+				error_log('DATABASE WRAPPER::'.print_r($e, true));
+			}
+			$this->pdo_exception = $e;
+			return false;
+		}
+	}
+  
+  
+  /**
+	 * method select_max.
+	 * 	- retrieve maximum value of a column from a table
+	 *
+	 * @param string $table - the name of the db table we are retreiving the rows from
+	 * @param string $selcol - the column whose maximum is to be fetched   
+	 * @param array $params - associative array representing the WHERE clause filters
+	 * @param array $compare - array containing the comparison operatios for WHERE clause filters
+	 * @param array $logic - array of logical operators after every condition      
+	 * @param int $limit (optional) - the amount of rows to return
+	 * @param int $start (optional) - the row to start on, indexed by zero
+	 * @param array $order_by (optional) - an array with order by clause
+	 * @param bool $use_master (optional) - use the master db for this read
+	 * @return mixed - associate representing the fetched table row, false on failure
+	 */
+	public function select_max($table, $selcol, $params = array(),
+                             $compare = null, $logic = null, $group_by = null,
+                             $use_master = false) {
+		
+    // building query string
+    $sql_str = "SELECT MAX($selcol) as max FROM $table";
+		// append WHERE if necessary
+		$sql_str .= ( count($params)>0 ? ' WHERE ' : '' );
+		
+		$add_logic = false;
+		// add each clause using parameter array
+		if (empty($params)) {
+			$params = array();
+		}
+    
+    $i = 0;
+    $j = 0;
+		foreach ($params as $key=>$val) {
+			// all AND OR after the first clause item has been appended
+			if ($add_logic) {
+        if(!empty($logic[$j])) {
+          $sql_str .= ' '.$logic[$j].' ';
+          $j++;
+        }
+        else{
+          $sql_str .= ' AND ';
+        }
+			}
+      else {
+				$add_logic = true;
+			}
+			
+			// append clause item
+      if(!empty($compare[$i])) {
+			  $sql_str .= "$key ".$compare[$i]." :$key";
+        $i++;
+      }
+      else {
+        $sql_str .= "$key = :$key";
+      }
+		}
+    
+    // add the group by clause if we have one
+		if (!empty($group_by)) {
+			$sql_str .= ' GROUP BY';
+			$add_comma = false;
+			foreach ($group_by as $group) {
+				if ($add_comma) {
+					$sql_str .= ', ';
+				}
+				else {
+					$add_comma = true;
+				}
+				$sql_str .= " $group";
+			}
+		}
+		
+		// now we attempt to retrieve the row using the sql string
+		try {
+			
+			// decide which database we are selecting from
+			$pdo_connection = $use_master ? $this->getMaster() : $this->getSlave();
+            $pdoDriver = $pdo_connection->getAttribute(PDO::ATTR_DRIVER_NAME);
+            
+			//@TODO MS SQL Server & Oracle handle LIMITs differently, for now its disabled but we should address it later.
+			$disableLimit = array("sqlsrv", "mssql", "oci");
+			
+			$pstmt = $pdo_connection->prepare($sql_str);
+			
+			// bind each parameter in the array			
+			foreach ($params as $key=>$val) {
+				$pstmt->bindValue(':'.$key, $val);
+			}
+			
+      if($pstmt->execute()) {
+        if(empty($group_by)) {
+          $result = $pstmt->fetch(PDO::FETCH_ASSOC);
+          return $result['max'];
+        }
+			  else {
+				  return $pstmt->fetchAll(PDO::FETCH_ASSOC);
+			  }
+      }
+      else {
+			  return false;
+			}
+    }
+		catch(PDOException $e) {
+			if (self::$LOG_ERRORS == true) {
+				error_log('DATABASE WRAPPER::'.print_r($e, true));
+			}
+			$this->pdo_exception = $e;
+			return false;
+		}
+		catch(Exception $e) {
+			if (self::$LOG_ERRORS == true) {
+				error_log('DATABASE WRAPPER::'.print_r($e, true));
+			}
+			$this->pdo_exception = $e;
+			return false;
+		}
+	}
+  
+  
+  /**
+	 * method select_min.
+	 * 	- retrieve minimum value of a column from a table
+	 *
+	 * @param string $table - the name of the db table we are retreiving the rows from
+	 * @param string $selcol - the column whose minimum is to be fetched   
+	 * @param array $params - associative array representing the WHERE clause filters
+	 * @param array $compare - array containing the comparison operatios for WHERE clause filters
+	 * @param array $logic - array of logical operators after every condition      
+	 * @param int $limit (optional) - the amount of rows to return
+	 * @param int $start (optional) - the row to start on, indexed by zero
+	 * @param array $order_by (optional) - an array with order by clause
+	 * @param bool $use_master (optional) - use the master db for this read
+	 * @return mixed - associate representing the fetched table row, false on failure
+	 */
+	public function select_min($table, $selcol, $params = array(),
+                             $compare = null, $logic = null, $group_by = null,
+                             $use_master = false) {
+		
+    // building query string
+    $sql_str = "SELECT MIN($selcol) as min FROM $table";
+		// append WHERE if necessary
+		$sql_str .= ( count($params)>0 ? ' WHERE ' : '' );
+		
+		$add_logic = false;
+		// add each clause using parameter array
+		if (empty($params)) {
+			$params = array();
+		}
+    
+    $i = 0;
+    $j = 0;
+		foreach ($params as $key=>$val) {
+			// all AND OR after the first clause item has been appended
+			if ($add_logic) {
+        if(!empty($logic[$j])) {
+          $sql_str .= ' '.$logic[$j].' ';
+          $j++;
+        }
+        else{
+          $sql_str .= ' AND ';
+        }
+			}
+      else {
+				$add_logic = true;
+			}
+			
+			// append clause item
+      if(!empty($compare[$i])) {
+			  $sql_str .= "$key ".$compare[$i]." :$key";
+        $i++;
+      }
+      else {
+        $sql_str .= "$key = :$key";
+      }
+		}
+    
+    // add the group by clause if we have one
+		if (!empty($group_by)) {
+			$sql_str .= ' GROUP BY';
+			$add_comma = false;
+			foreach ($group_by as $group) {
+				if ($add_comma) {
+					$sql_str .= ', ';
+				}
+				else {
+					$add_comma = true;
+				}
+				$sql_str .= " $group";
+			}
+		}
+		
+		// now we attempt to retrieve the row using the sql string
+		try {
+			
+			// decide which database we are selecting from
+			$pdo_connection = $use_master ? $this->getMaster() : $this->getSlave();
+            $pdoDriver = $pdo_connection->getAttribute(PDO::ATTR_DRIVER_NAME);
+            
+			//@TODO MS SQL Server & Oracle handle LIMITs differently, for now its disabled but we should address it later.
+			$disableLimit = array("sqlsrv", "mssql", "oci");
+			
+			$pstmt = $pdo_connection->prepare($sql_str);
+			
+			// bind each parameter in the array			
+			foreach ($params as $key=>$val) {
+				$pstmt->bindValue(':'.$key, $val);
+			}
+			
+      if($pstmt->execute()) {
+        if(empty($group_by)) {
+          $result = $pstmt->fetch(PDO::FETCH_ASSOC);
+          return $result['min'];
+        }
+			  else {
+				  return $pstmt->fetchAll(PDO::FETCH_ASSOC);
+			  }
+      }
+      else {
+			  return false;
+			}
+    }
+		catch(PDOException $e) {
+			if (self::$LOG_ERRORS == true) {
+				error_log('DATABASE WRAPPER::'.print_r($e, true));
+			}
+			$this->pdo_exception = $e;
+			return false;
+		}
+		catch(Exception $e) {
+			if (self::$LOG_ERRORS == true) {
+				error_log('DATABASE WRAPPER::'.print_r($e, true));
+			}
+			$this->pdo_exception = $e;
+			return false;
+		}
+	}
 	
 	
 	/**
 	 * method selectMaster.
 	 * 	- retrieve information from the master database, as an array
 	 *
-	 * @param table - the name of the db table we are retreiving the rows from
-	 * @param params - associative array representing the WHERE clause filters
+	 * @param string $table - the name of the db table we are retreiving the rows from
+	 * @param array $show - the columns that are to be fetched   
+	 * @param array $params - associative array representing the WHERE clause filters
+	 * @param array $compare - array containing the comparison operatios for WHERE clause filters
+	 * @param array $logic - array of logical operators after every condition      
 	 * @param int $limit (optional) - the amount of rows to return
 	 * @param int $start (optional) - the row to start on, indexed by zero
 	 * @param array $order_by (optional) - an array with order by clause
+	 * @param bool $use_master (optional) - use the master db for this read
 	 * @return mixed - associate representing the fetched table row, false on failure
 	 */
-	public function selectMaster($table, $params = array(), $limit = null, $start = null, $order_by=null) {
-		return $this->select($table, $params, $limit, $start, $order_by, true);
+	public function selectMaster($table, $showcols = null, $params = array(),
+                               $compare = null, $logic = null, $limit = null,
+                               $start = null, $group_by = null, $order_by=null) {
+		return $this->select($table, $showcols, $params, $compare, $logic, $limit, $start, $group_by, $order_by, true);
 	}
 	
 	
@@ -454,13 +887,22 @@ class PDOWrapper {
 	 * method selectFirst.
 	 * 	- retrieve the first row returned from a select statement
 	 *
-	 * @param table - the name of the db table we are retreiving the rows from
-	 * @param params - associative array representing the WHERE clause filters
+	 * @param string $table - the name of the db table we are retreiving the rows from
+	 * @param array $show - the columns that are to be fetched   
+	 * @param array $params - associative array representing the WHERE clause filters
+	 * @param array $compare - array containing the comparison operatios for WHERE clause filters
+	 * @param array $logic - array of logical operators after every condition      
+	 * @param int $limit (optional) - the amount of rows to return
+	 * @param int $start (optional) - the row to start on, indexed by zero
 	 * @param array $order_by (optional) - an array with order by clause
+	 * @param bool $use_master (optional) - use the master db for this read
 	 * @return mixed - associate representing the fetched table row, false on failure
 	 */
-	public function selectFirst($table, $params = array(), $order_by=null) {
-		return $this->select($table, $params, 1, null, $order_by);
+	public function selectFirst($table, $showcols = null, $params = array(),
+                              $compare = null, $logic = null, $limit = null,
+                              $start = null, $group_by = null, $order_by = null,
+                              $use_master = false) {
+		return $this->select($table, $showcols, $params, $compare, $logic, 1, null, $group_by, $order_by);
 	}
 	
 	
@@ -468,13 +910,22 @@ class PDOWrapper {
 	 * method selectFirstMaster.
 	 * 	- retrieve the first row returned from a select statement using the master database
 	 *
-	 * @param table - the name of the db table we are retreiving the rows from
-	 * @param params - associative array representing the WHERE clause filters
+	 * @param string $table - the name of the db table we are retreiving the rows from
+	 * @param array $show - the columns that are to be fetched   
+	 * @param array $params - associative array representing the WHERE clause filters
+	 * @param array $compare - array containing the comparison operatios for WHERE clause filters
+	 * @param array $logic - array of logical operators after every condition      
+	 * @param int $limit (optional) - the amount of rows to return
+	 * @param int $start (optional) - the row to start on, indexed by zero
 	 * @param array $order_by (optional) - an array with order by clause
+	 * @param bool $use_master (optional) - use the master db for this read
 	 * @return mixed - associate representing the fetched table row, false on failure
 	 */
-	public function selectFirstMaster($table, $params = array(), $order_by=null) {
-		return $this->select($table, $params, 1, null, $order_by, true);
+	public function selectFirstMaster($table, $showcols = null, $params = array(),
+                                    $compare = null, $logic = null, $limit = null,
+                                    $start = null, $group_by = null, $order_by = null,
+                                    $use_master = true) {
+		return $this->select($table, $showcols, $params, $compare, $logic, 1, null, $group_by, $order_by, true);
 	}
 	
 	
@@ -483,27 +934,45 @@ class PDOWrapper {
 	 * 	- deletes rows from a table based on the parameters
 	 *
 	 * @param table - the name of the db table we are deleting the rows from
-	 * @param params - associative array representing the WHERE clause filters
+	 * @param array params - associative array representing the WHERE clause filters
+	 * @param array $compare - array containing the comparison operatios for WHERE clause filters
+	 * @param array $logic - array of logical operators after every condition      
 	 * @return bool - associate representing the fetched table row, false on failure
 	 */
-	public function delete($table, $params = array()) {
+	public function delete($table, $params = array(), $compare = array(), $logic = array()) {
 		// building query string
 		$sql_str = "DELETE FROM $table";
 		// append WHERE if necessary
 		$sql_str .= ( count($params)>0 ? ' WHERE ' : '' );
 		
-		$add_and = false;
-		// add each clause using parameter array
+		$add_logic = false;
+		
+    // add each clause using parameter array
+    $i = 0;
+    $j = 0;
 		foreach ($params as $key=>$val) {
-			// only add AND after the first clause item has been appended
-			if ($add_and) {
-				$sql_str .= ' AND ';
-			} else {
-				$add_and = true;
+			// all AND OR after the first clause item has been appended
+			if ($add_logic) {
+        if(!empty($logic[$j])) {
+          $sql_str .= ' '.$logic[$j].' ';
+          $j++;
+        }
+        else{
+          $sql_str .= ' AND ';
+        }
+			}
+      else {
+				$add_logic = true;
 			}
 			
 			// append clause item
-			$sql_str .= "$key = :$key";
+      if(!empty($compare[$i])) {
+			  $sql_str .= "$key ".$compare[$i]." :$key";
+        $i++;
+      }
+      else {
+        $sql_str .= "$key = :$key";
+      }
 		}
 		
 		// now we attempt to retrieve the row using the sql string
@@ -537,6 +1006,7 @@ class PDOWrapper {
 		}
 	}
 	
+  
  	/**
 	 * method update.
 	 * 	- updates a row to the specified table
@@ -547,7 +1017,7 @@ class PDOWrapper {
 	 * @param bool $timestamp_this (Optional) - if true we set date_created and date_modified values to now
 	 * @return int|bool - the amount of rows updated, false on failure
 	 */
-	public function update($table, $params, $wheres=array(), $timestamp_this=null) {
+	public function update($table, $params, $wheres=array(), $compare=array(), $logic=array(), $timestamp_this=null) {
 		if (is_null($timestamp_this)) {
 			$timestamp_this = self::$TIMESTAMP_WRITES;
 		}
@@ -573,16 +1043,38 @@ class PDOWrapper {
 		}
 		
 		// lets add our where clause if we have one
-		$where_string = '';
-		if (!empty($wheres)) {
-			// load each key value pair, and implode them with an AND
-			$where_array = array();
-			foreach($wheres as $key => $val) {
-				$where_array[] = "$key=:where_$key";
-			}
-			// build the final where string
-			$where_string = 'WHERE '.implode(' AND ', $where_array);
-		}
+		$where_string = 'WHERE ';
+		if(!empty($wheres)) {
+		  $add_logic = false;
+		
+      // add each clause using parameter array
+      $i = 0;
+      $j = 0;
+		  foreach ($wheres as $key=>$val) {
+			  // all AND OR after the first clause item has been appended
+			  if ($add_logic) {
+          if(!empty($logic[$j])) {
+            $where_string .= ' '.$logic[$j].' ';
+            $j++;
+          }
+          else{
+            $where_string .= ' AND ';
+          }
+			  }
+        else {
+				  $add_logic = true;
+			  }
+			
+			  // append clause item
+        if(!empty($compare[$i])) {
+			    $where_string .= "$key ".$compare[$i]." :where_$key";
+          $i++;
+        }
+        else { //Build up the where clause
+          $where_string .= "$key = :where_$key";
+        }
+		  }
+    }
 		
 		// build final update string
 		$sql_str = "UPDATE $table SET $set_string $where_string";
@@ -623,6 +1115,7 @@ class PDOWrapper {
 		}
 	}
 	
+  
 	/**
 	 * method insert.
 	 * 	- adds a row to the specified table
@@ -701,6 +1194,7 @@ class PDOWrapper {
 		}
 	}
 	
+  
 	/**
 	 * method insertMultiple.
 	 * 	- adds multiple rows to a table with a single query
@@ -791,7 +1285,36 @@ class PDOWrapper {
 			return false;
 		}
 	}
+ 
+  
+  /**
+	 * method truncate.
+	 * 	- executes a query that truncates a table
+	 *
+	 * @param string $table - the table we are truncating
+	 * @return mixed - true if done, false on failure
+	 */
+  public function truncate($table) {
+    $sql_str = "TRUNCATE TABLE $table";
+    
+    return $this->execute($sql_str);
+  }
+  
+  
+  /**
+	 * method drop.
+	 * 	- executes a query that drops a table
+	 *
+	 * @param string $table - the table we are truncating
+	 * @return mixed - true if done, false on failure
+	 */
+  public function drop($table) {
+    $sql_str = "DROP TABLE IF EXISTS $table";
+    
+    return $this->execute($sql_str);
+  }
 	
+  
 	/**
 	 * method execute.
 	 * 	- executes a query that modifies the database
@@ -817,7 +1340,7 @@ class PDOWrapper {
 			$result = $pstmt->execute();
 			
 			// only if return value is false did this query fail
-			return ($result == true) ? $pstmt->rowCount() : false;
+			return ($result == true) ? true : false;
 		}
 		catch(PDOException $e) {
 			if (self::$LOG_ERRORS == true) {
@@ -834,6 +1357,42 @@ class PDOWrapper {
 			return false;
 		}
 	}
+  
+  
+  /**
+	 * method create.
+	 * 	- creates a table in a database
+	 *
+	 * @param string $table - the name of the table we are creating
+	 * @param array $columns - the name of the columns and their respective types
+	 * @param string $primary_key - the primary key for the table   
+	 * @return mixed - true on success, false on failure
+	 */
+	public function create($tbl_name, $columns, $primary_key=null) {
+    
+    //Building the query
+    $query = "CREATE TABLE IF NOT EXISTS $tbl_name (";
+    
+    $add_comma = false;
+    
+    foreach($columns as $col => $type) {
+      if($add_comma) {
+        $query.= ", ";
+      }
+      else {
+        $add_comma = true;
+      }
+      $query.= "$col $type";
+    }
+    
+    if(!empty($primary_key)) {
+      $query.= ", PRIMARY KEY ($primary_key)";
+    }
+    $query.= ")";
+    
+		return $this->execute($query);
+	}
+
 	
 	/**
 	 * method query.
@@ -877,6 +1436,7 @@ class PDOWrapper {
 			return false;
 		}
 	}
+
 	
 	/**
 	 * method queryFirst.
@@ -896,7 +1456,8 @@ class PDOWrapper {
 			return $result[0];
 		}
 	}
-	
+
+
 	/**
 	 * method getErrorMessage.
 	 * 	- returns the last error message caught
@@ -908,6 +1469,7 @@ class PDOWrapper {
 			return 'Database temporarily unavailable';
 	}
 	
+
 	/**
 	 * method getError.
 	 * 	- returns the actual PDO exception
@@ -915,7 +1477,8 @@ class PDOWrapper {
 	public function getPDOException() {
 		return $this->pdo_exception;
 	}
-	
+
+
 	/**
 	 * Validate the database in question is supported by your installation of PHP.
 	 * @param string $driver The DSN prefix
@@ -929,6 +1492,7 @@ class PDOWrapper {
 		}
 	}
 	
+  
 	/**
 	 * Destructor.
 	 * 	- release the PDO db connections
@@ -938,3 +1502,4 @@ class PDOWrapper {
 		unset($this->pdo_slave);
 	}
 }
+?>
